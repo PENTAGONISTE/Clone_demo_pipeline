@@ -1,0 +1,175 @@
+stages: [lint, test, quality, security, build, scan, deploy, verify]
+
+default:
+  image: python:3.12-slim
+  cache:
+    key: pip-$CI_COMMIT_REF_SLUG
+    paths: [.cache/pip]
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
+  TF_ADDRESS: $CI_API_V4_URL/projects/$CI_PROJECT_ID/terraform/state/production
+
+.python:
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq make > /dev/null
+    - pip install -q -r requirements-dev.txt
+
+lint:
+  stage: lint
+  extends: .python
+  script: [make lint]
+
+unit:
+  stage: test
+  extends: .python
+  script: [make coverage]
+  coverage: '/TOTAL.*\s(\d+)%/'
+  artifacts:
+    when: always
+    paths: [coverage.xml, report.xml]
+    reports:
+      junit: report.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+
+integration:
+  stage: test
+  extends: .python
+  services: [postgres:16]
+  variables:
+    POSTGRES_PASSWORD: test
+    TEST_DATABASE_URL: postgresql+psycopg://postgres:test@postgres/postgres
+  script: [make integration]
+
+e2e:
+  stage: test
+  image: mcr.microsoft.com/playwright/python:v1.52.0-noble
+  before_script: [pip install -q -r requirements-dev.txt]
+  script: [python -m pytest -m e2e --tracing retain-on-failure]
+  artifacts:
+    when: on_failure
+    paths: [test-results/]
+
+sonarqube:
+  stage: quality
+  image: { name: sonarsource/sonar-scanner-cli:latest, entrypoint: [""] }
+  needs: [unit]
+  cache: []
+  variables:
+    GIT_DEPTH: "0"
+  script:
+    - sonar-scanner -Dsonar.qualitygate.wait=true
+  rules:
+    - if: $SONAR_TOKEN == null
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+secrets:
+  stage: security
+  image: { name: zricethezav/gitleaks:latest, entrypoint: [""] }
+  cache: []
+  variables:
+    GIT_DEPTH: "0"
+  script: [gitleaks git --redact --verbose .]
+
+trivy_deps:
+  stage: security
+  image: { name: aquasec/trivy:latest, entrypoint: [""] }
+  cache: []
+  script:
+    - trivy fs --scanners vuln --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 .
+
+checkov:
+  stage: security
+  image: { name: bridgecrew/checkov:latest, entrypoint: [""] }
+  cache: []
+  script: [checkov -d infra/terraform --framework terraform]
+
+build:
+  stage: build
+  image: docker:27
+  services: [docker:27-dind]
+  cache: []
+  script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker build -t $IMAGE .
+    - docker push $IMAGE
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        docker tag $IMAGE $CI_REGISTRY_IMAGE:${CI_COMMIT_TAG#v}
+        docker push $CI_REGISTRY_IMAGE:${CI_COMMIT_TAG#v}
+      fi
+
+trivy_image:
+  stage: scan
+  image: { name: aquasec/trivy:latest, entrypoint: [""] }
+  cache: []
+  variables:
+    TRIVY_USERNAME: $CI_REGISTRY_USER
+    TRIVY_PASSWORD: $CI_REGISTRY_PASSWORD
+  script: [trivy image --severity CRITICAL --exit-code 1 $IMAGE]
+
+terraform:
+  stage: deploy
+  image: { name: hashicorp/terraform:1.9, entrypoint: [""] }
+  cache: []
+  environment: { name: production }
+  when: manual
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  variables:
+    TF_VAR_hcloud_token: $HCLOUD_TOKEN
+    TF_VAR_ssh_public_key: $SSH_PUBLIC_KEY
+  script:
+    - cd infra/terraform
+    - >
+      terraform init -backend-config="address=$TF_ADDRESS" -backend-config="lock_address=$TF_ADDRESS/lock"
+      -backend-config="unlock_address=$TF_ADDRESS/lock" -backend-config="username=gitlab-ci-token"
+      -backend-config="password=$CI_JOB_TOKEN" -backend-config="lock_method=POST" -backend-config="unlock_method=DELETE"
+    - terraform plan -out=tfplan
+    - terraform apply tfplan
+    - echo "SERVER_IP=$(terraform output -raw server_ip)" > ../../deploy.env
+  artifacts:
+    reports:
+      dotenv: deploy.env
+
+ansible:
+  stage: deploy
+  image: alpine/ansible
+  cache: []
+  needs: [terraform]
+  environment: { name: production, url: "http://$SERVER_IP" }
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  before_script:
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | ssh-add -
+    - printf "[app]\n%s ansible_user=root\n" "$SERVER_IP" > infra/ansible/inventory.ini
+  script:
+    - cd infra/ansible
+    - ansible-playbook deploy.yml -e registry_image=$CI_REGISTRY_IMAGE -e image_tag=$CI_COMMIT_SHORT_SHA
+
+smoke:
+  stage: verify
+  image: curlimages/curl
+  cache: []
+  needs: [terraform, ansible]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - curl --fail --retry 10 --retry-delay 5 --retry-all-errors http://$SERVER_IP/health
+    - curl --fail http://$SERVER_IP/login
+
+zap_baseline:
+  stage: verify
+  image: ghcr.io/zaproxy/zaproxy:stable
+  cache: []
+  needs: [terraform, smoke]
+  allow_failure: true
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script: [zap-baseline.py -t http://$SERVER_IP]

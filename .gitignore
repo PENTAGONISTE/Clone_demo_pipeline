@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.db
+.env
+.coverage
+coverage.xml
+report.xml
+test-results/
+.scannerwork/
+infra/terraform/.terraform/
+infra/terraform/*.tfstate*
+infra/terraform/terraform.tfvars
+infra/ansible/inventory.ini

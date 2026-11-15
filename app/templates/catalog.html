@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Catalogue</h1>
+{% if books %}
+<table>
+  <thead><tr><th>Titre</th><th>Auteur</th><th>ISBN</th><th></th></tr></thead>
+  <tbody>
+  {% for book, borrowed in books %}
+    <tr>
+      <td>{{ book.title }}</td>
+      <td>{{ book.author or "" }}</td>
+      <td>{{ book.isbn }}</td>
+      <td>
+        {% if borrowed %}Emprunté{% else %}
+        <form method="post" action="/books/{{ book.id }}/borrow">
+          <button type="submit" aria-label="Emprunter {{ book.title }}">Emprunter</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>Aucun livre pour le moment.</p>
+{% endif %}
+{% endblock %}

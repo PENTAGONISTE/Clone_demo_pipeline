@@ -1,0 +1,48 @@
+- name: Déployer Biblio
+  hosts: app
+  become: true
+  vars:
+    app_dir: /opt/biblio
+    image: "{{ registry_image }}:{{ image_tag }}"
+  tasks:
+    - name: Installer Docker
+      ansible.builtin.apt:
+        name: [docker.io, docker-compose-v2]
+        update_cache: true
+
+    - name: Créer le dossier de l'application
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        mode: "0750"
+
+    - name: Copier le fichier Compose
+      ansible.builtin.copy:
+        src: ../../compose.yaml
+        dest: "{{ app_dir }}/compose.yaml"
+        mode: "0640"
+
+    - name: Écrire la configuration
+      ansible.builtin.copy:
+        dest: "{{ app_dir }}/.env"
+        mode: "0600"
+        content: |
+          BIBLIO_IMAGE={{ image }}
+          APP_PORT=80
+          DB_PASSWORD={{ lookup('env', 'DB_PASSWORD') }}
+          SECRET_KEY={{ lookup('env', 'SECRET_KEY') }}
+          API_TOKEN={{ lookup('env', 'API_TOKEN') }}
+          ADMIN_PASSWORD={{ lookup('env', 'ADMIN_PASSWORD') }}
+
+    - name: Se connecter au registre
+      ansible.builtin.command: >
+        docker login -u {{ lookup('env', 'CI_REGISTRY_USER') }}
+        -p {{ lookup('env', 'CI_REGISTRY_PASSWORD') }} {{ lookup('env', 'CI_REGISTRY') }}
+      no_log: true
+      changed_when: false
+
+    - name: Démarrer la nouvelle version
+      ansible.builtin.command: docker compose up -d --pull always --no-build
+      args:
+        chdir: "{{ app_dir }}"
+      changed_when: true

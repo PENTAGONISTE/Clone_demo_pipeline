@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Biblio</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; color: #0f172a; }
+    nav { display: flex; gap: 1rem; align-items: center; border-bottom: 1px solid #e2e8f0; padding-bottom: .75rem; margin-bottom: 1.5rem; }
+    nav strong { margin-right: auto; color: #1e90ff; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: .5rem; border-bottom: 1px solid #e2e8f0; }
+    label { display: block; margin: .75rem 0 .25rem; }
+    input { padding: .4rem; width: 100%; max-width: 320px; }
+    button { background: #1e90ff; color: #fff; border: 0; padding: .45rem .9rem; border-radius: 4px; cursor: pointer; }
+    .error { color: #b91c1c; }
+  </style>
+</head>
+<body>
+  {% if request.session.get("user") %}
+  <nav>
+    <strong>Biblio</strong>
+    <a href="/">Catalogue</a>
+    <a href="/books/new">Ajouter un livre</a>
+    <a href="/loans">Mes emprunts</a>
+    <form method="post" action="/logout"><button>Se déconnecter</button></form>
+  </nav>
+  {% endif %}
+  <main>{% block content %}{% endblock %}</main>
+</body>
+</html>

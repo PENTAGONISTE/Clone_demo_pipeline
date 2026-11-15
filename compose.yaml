@@ -1,0 +1,27 @@
+services:
+  app:
+    image: ${BIBLIO_IMAGE:-biblio:local}
+    build: .
+    ports: ["${APP_PORT:-8000}:8000"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://biblio:${DB_PASSWORD:-biblio}@db:5432/biblio
+      SECRET_KEY: ${SECRET_KEY:-dev-only-secret}
+      API_TOKEN: ${API_TOKEN:-dev-token}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-secret}
+    depends_on:
+      db: { condition: service_healthy }
+    restart: unless-stopped
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: biblio
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-biblio}
+      POSTGRES_DB: biblio
+    volumes: [pg_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U biblio"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+volumes:
+  pg_data: {}

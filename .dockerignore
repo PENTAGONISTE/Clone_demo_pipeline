@@ -1,0 +1,11 @@
+.git
+.venv
+tests
+infra
+sonar
+*.db
+.env
+coverage.xml
+report.xml
+test-results
+__pycache__

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Mes emprunts</h1>
+{% if loans %}
+<table>
+  <thead><tr><th>Titre</th><th>Emprunté le</th></tr></thead>
+  <tbody>
+  {% for loan in loans %}
+    <tr><td>{{ loan.book.title }}</td><td>{{ loan.borrowed_on.strftime("%d/%m/%Y") }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>Aucun emprunt en cours.</p>
+{% endif %}
+{% endblock %}
