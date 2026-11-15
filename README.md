@@ -7,21 +7,23 @@ FastAPI, SQLAlchemy, PostgreSQL et pages Jinja2.
 
 ```bash
 python3.12 -m venv .venv && source .venv/bin/activate
-make install        # dépendances + navigateur Chromium pour Playwright
-make run            # http://localhost:8000, connexion : biblio@ensam.ma / secret
+pip install -r requirements-dev.txt
+playwright install chromium               # navigateur des tests end-to-end
+uvicorn app.main:app --reload             # http://localhost:8000, connexion : biblio@ensam.ma / secret
 ```
 
 Avec PostgreSQL : `docker compose up --build`.
 
-## Tests
+## Qualité et tests
 
-| Commande | Niveau | Prérequis |
+| Commande | Rôle | Prérequis |
 | --- | --- | --- |
-| `make lint` | Ruff | aucun |
-| `make test` | unit + API | aucun |
-| `make coverage` | unit + API, avec `coverage.xml` et `report.xml` | aucun |
-| `make integration` | integration | Docker (Testcontainers) |
-| `make e2e` | end-to-end | Chromium (`make install`) |
+| `ruff check .` puis `ruff format --check .` | lint et formatage | aucun |
+| `ruff check --fix . && ruff format .` | corriger et reformater | aucun |
+| `pytest -m "not integration and not e2e"` | tests unit + API | aucun |
+| `pytest -m "not integration and not e2e" --cov --cov-report=xml --junitxml=report.xml` | idem, avec `coverage.xml` et `report.xml` | aucun |
+| `pytest -m integration` | tests d'integration | Docker (Testcontainers) |
+| `pytest -m e2e --tracing retain-on-failure` | tests end-to-end | Chromium |
 
 ## Arborescence
 
@@ -30,7 +32,7 @@ app/          main.py (API + pages), models.py, repositories.py, services/, temp
 tests/        unit/  integration/  api/  e2e/
 infra/        terraform/ (Hetzner Cloud)  ansible/ (déploiement)
 sonar/        compose.yaml du serveur SonarQube
-.gitlab-ci.yml  Dockerfile  compose.yaml  sonar-project.properties  Makefile
+.gitlab-ci.yml  Dockerfile  compose.yaml  sonar-project.properties  pyproject.toml
 ```
 
 ## API

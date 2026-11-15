@@ -13,18 +13,20 @@ variables:
 
 .python:
   before_script:
-    - apt-get update -qq && apt-get install -y -qq make > /dev/null
     - pip install -q -r requirements-dev.txt
 
 lint:
   stage: lint
   extends: .python
-  script: [make lint]
+  script:
+    - ruff check .
+    - ruff format --check .
 
 unit:
   stage: test
   extends: .python
-  script: [make coverage]
+  script:
+    - pytest -m "not integration and not e2e" --cov --cov-report=term --cov-report=xml --junitxml=report.xml
   coverage: '/TOTAL.*\s(\d+)%/'
   artifacts:
     when: always
@@ -42,7 +44,7 @@ integration:
   variables:
     POSTGRES_PASSWORD: test
     TEST_DATABASE_URL: postgresql+psycopg://postgres:test@postgres/postgres
-  script: [make integration]
+  script: [pytest -m integration]
 
 e2e:
   stage: test
